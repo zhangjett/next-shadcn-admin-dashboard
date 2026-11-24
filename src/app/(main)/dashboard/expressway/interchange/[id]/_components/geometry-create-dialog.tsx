@@ -23,9 +23,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createInterchangeGeometry, fetchExpresswayOptions } from "@/data/expressway";
+import { createInterchangeGeometry, fetchInterchangeExpresswayOptions } from "@/data/expressway";
 import { fetchDrivingRoute } from "@/lib/tmap-driving";
-import type { Direction, GeometryCreateDialogProps, PickingTarget, RoutePoint } from "@/types/expressway";
+import type {
+  Direction,
+  ExpresswayOption,
+  GeometryCreateDialogProps,
+  LineType,
+  PickingTarget,
+  RoutePoint,
+} from "@/types/expressway";
 
 const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
   { value: "UP", label: "上行（UP）" },
@@ -131,6 +138,73 @@ function CoordinateField({
   );
 }
 
+/** 高速公路 + 方向选择，主线和匝道的起终端复用这一组控件 */
+function ExpresswayDirectionFields({
+  heading,
+  idPrefix,
+  options,
+  expresswayId,
+  onExpresswayChange,
+  direction,
+  onDirectionChange,
+}: {
+  heading?: string;
+  idPrefix: string;
+  options: ExpresswayOption[];
+  expresswayId: string;
+  onExpresswayChange: (value: string) => void;
+  direction: Direction | "";
+  onDirectionChange: (value: Direction) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {heading ? <span className="text-muted-foreground text-xs font-medium">{heading}</span> : null}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <Label htmlFor={`${idPrefix}-expressway`}>高速公路</Label>
+          <Select value={expresswayId} onValueChange={onExpresswayChange}>
+            <SelectTrigger id={`${idPrefix}-expressway`} className="w-full">
+              <SelectValue placeholder="选择高速公路" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {options.map((item) => {
+                const code = item.number ?? item.abbreviated_name ?? "";
+                return (
+                  <SelectItem key={item.id} value={item.id} disabled={!code}>
+                    {code ? `${code}${item.name ? ` · ${item.name}` : ""}` : (item.name ?? item.id)}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-sm leading-none font-medium">方向</span>
+          <fieldset className="bg-muted/60 m-0 grid h-8 grid-cols-2 gap-0.5 rounded-md border-0 p-0.5">
+            <legend className="sr-only">方向</legend>
+            {DIRECTION_OPTIONS.map((option) => {
+              const active = direction === option.value;
+              return (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant={active ? "default" : "ghost"}
+                  className={cn("h-7 px-0 text-xs", !active && "text-muted-foreground")}
+                  aria-pressed={active}
+                  onClick={() => onDirectionChange(option.value)}
+                >
+                  {option.label}
+                </Button>
+              );
+            })}
+          </fieldset>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GeometryCreateDialog({
   open,
   onOpenChange,
@@ -153,16 +227,32 @@ export function GeometryCreateDialog({
   const [routeRequest, setRouteRequest] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // 线路编码 = 所选高速公路编号 - 方向，如 G2-UP
-  const { data: expresswayOptions = [] } = useSWR("expressway_options", fetchExpresswayOptions);
+  // 线路编码：主线 G2-DOWN；匝道 G2-UP->G25-DOWN
+  const { data: expresswayOptions = [] } = useSWR(`interchange_expressway_options:${interchangeId}`, () =>
+    fetchInterchangeExpresswayOptions(interchangeId),
+  );
+  const [lineType, setLineType] = useState<LineType>("ramp");
   const [expresswayId, setExpresswayId] = useState("");
   const [direction, setDirection] = useState<Direction | "">("");
+  const [toExpresswayId, setToExpresswayId] = useState("");
+  const [toDirection, setToDirection] = useState<Direction | "">("");
 
-  const selectedExpressway = expresswayOptions.find((item) => item.id === expresswayId);
-  const expresswayCode = selectedExpressway
-    ? (selectedExpressway.number ?? selectedExpressway.abbreviated_name ?? "")
-    : "";
-  const routeCode = expresswayCode && direction ? `${expresswayCode}-${direction}` : "";
+  const resolveExpresswayCode = (id: string) => {
+    const item = expresswayOptions.find((option) => option.id === id);
+    return item ? (item.number ?? item.abbreviated_name ?? "") : "";
+  };
+
+  const fromCode = resolveExpresswayCode(expresswayId);
+  const toCode = resolveExpresswayCode(toExpresswayId);
+  const fromSegment = fromCode && direction ? `${fromCode}-${direction}` : "";
+  const toSegment = toCode && toDirection ? `${toCode}-${toDirection}` : "";
+
+  let routeCode = "";
+  if (lineType === "mainline") {
+    routeCode = fromSegment;
+  } else if (fromSegment && toSegment) {
+    routeCode = `${fromSegment}->${toSegment}`;
+  }
 
   useEffect(() => {
     pickingRef.current = picking;
@@ -257,6 +347,8 @@ export function GeometryCreateDialog({
     setRouteRequest(null);
     setExpresswayId("");
     setDirection("");
+    setToExpresswayId("");
+    setToDirection("");
   }
 
   function handleOpenChange(next: boolean) {
@@ -299,7 +391,7 @@ export function GeometryCreateDialog({
         <DialogHeader>
           <DialogTitle>新建匝道几何{interchangeName ? ` · ${interchangeName}` : ""}</DialogTitle>
           <DialogDescription>
-            点「选取」后在地图上点选起终点，再「路线规划」生成折线坐标；选择高速公路与方向后保存，线路编码按「高速编号-方向」自动生成。
+            点「选取」后在地图上点选起终点，再「路线规划」生成折线坐标；选择线路类型并填好高速与方向后保存，主线编码为「高速-方向」，匝道编码为「起点高速-方向-&gt;终点高速-方向」。
           </DialogDescription>
         </DialogHeader>
 
@@ -358,44 +450,64 @@ export function GeometryCreateDialog({
             </section>
 
             <section className="flex flex-col gap-3 rounded-lg border p-3">
-              <span className="text-sm font-medium">线路编码</span>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="geometry-expressway">高速公路</Label>
-                <Select value={expresswayId} onValueChange={setExpresswayId}>
-                  <SelectTrigger id="geometry-expressway" className="w-full">
-                    <SelectValue placeholder="选择高速公路" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {expresswayOptions.map((item) => {
-                      const code = item.number ?? item.abbreviated_name ?? "";
-                      return (
-                        <SelectItem key={item.id} value={item.id} disabled={!code}>
-                          {code ? `${code}${item.name ? ` · ${item.name}` : ""}` : (item.name ?? item.id)}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium">线路编码</span>
+                <div className="bg-muted/60 inline-flex items-center rounded-md p-0.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={lineType === "mainline" ? "default" : "ghost"}
+                    className="h-6 px-2 text-xs"
+                    aria-pressed={lineType === "mainline"}
+                    onClick={() => setLineType("mainline")}
+                  >
+                    主线
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={lineType === "ramp" ? "default" : "ghost"}
+                    className="h-6 px-2 text-xs"
+                    aria-pressed={lineType === "ramp"}
+                    onClick={() => setLineType("ramp")}
+                  >
+                    匝道
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="geometry-direction">方向</Label>
-                <Select value={direction} onValueChange={(value) => setDirection(value as Direction)}>
-                  <SelectTrigger id="geometry-direction" className="w-full">
-                    <SelectValue placeholder="选择方向" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DIRECTION_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+
+              <ExpresswayDirectionFields
+                heading={lineType === "ramp" ? "起点" : undefined}
+                idPrefix="geometry-from"
+                options={expresswayOptions}
+                expresswayId={expresswayId}
+                onExpresswayChange={setExpresswayId}
+                direction={direction}
+                onDirectionChange={setDirection}
+              />
+
+              {lineType === "ramp" ? (
+                <>
+                  <div className="border-border/60 border-t" />
+                  <ExpresswayDirectionFields
+                    heading="终点"
+                    idPrefix="geometry-to"
+                    options={expresswayOptions}
+                    expresswayId={toExpresswayId}
+                    onExpresswayChange={setToExpresswayId}
+                    direction={toDirection}
+                    onDirectionChange={setToDirection}
+                  />
+                </>
+              ) : null}
+
               <div className="bg-muted/40 flex items-center justify-between gap-2 rounded-md px-3 py-2">
-                <span className="text-muted-foreground text-xs">编码预览</span>
+                <span className="text-muted-foreground shrink-0 text-xs">编码预览</span>
                 <span
-                  className={cn("font-mono text-xs font-medium", !routeCode && "text-muted-foreground font-normal")}
+                  className={cn(
+                    "text-right font-mono text-xs font-medium break-all",
+                    !routeCode && "text-muted-foreground font-normal",
+                  )}
                 >
                   {routeCode || "待选择"}
                 </span>

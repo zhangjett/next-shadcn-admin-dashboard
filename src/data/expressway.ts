@@ -1,16 +1,21 @@
 import { createClient } from "@/lib/supabase/client";
 import type { CreateInterchangeGeometryInput, ExpresswayOption } from "@/types/expressway";
 
-export async function fetchExpresswayOptions(): Promise<ExpresswayOption[]> {
+/** 只返回该互通关联的高速，供新建匝道几何时选择线路 */
+export async function fetchInterchangeExpresswayOptions(interchangeId: string): Promise<ExpresswayOption[]> {
   const { data, error } = await createClient()
-    .from("expressway")
-    .select("id, number, abbreviated_name, name, district")
-    // district 是 text[] 数组列，服务端过滤包含江苏省代码 320000 的记录
-    .contains("district", ["320000"])
-    .order("order_code");
+    .from("expressway_interchange_road")
+    .select("expressway:expressway(id, number, abbreviated_name, name, district)")
+    .eq("interchange_id", interchangeId);
 
   if (error) throw error;
-  return data ?? [];
+
+  const rows = (data ?? []) as unknown as { expressway: ExpresswayOption | null }[];
+
+  return rows
+    .map((row) => row.expressway)
+    .filter((item): item is ExpresswayOption => item !== null)
+    .sort((a, b) => (a.number ?? a.abbreviated_name ?? "").localeCompare(b.number ?? b.abbreviated_name ?? ""));
 }
 
 export async function createInterchangeGeometry({

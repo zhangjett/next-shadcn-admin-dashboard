@@ -2,6 +2,9 @@ export type PickingTarget = "origin" | "destination" | null;
 
 export type Direction = "UP" | "DOWN";
 
+/** 线路类型：主线只有起端，匝道需要起端 -> 终端 */
+export type LineType = "mainline" | "ramp";
+
 export type ExpresswayOption = {
   id: string;
   number: string | null;

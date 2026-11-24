@@ -2,8 +2,11 @@
 
 import * as React from "react";
 
+import { cn } from "cn";
 import { Copy, Maximize2, Plus } from "lucide-react";
 import useSWR, { mutate } from "swr";
+import { BaseMap, MultiPolyline } from "tlbs-map-react";
+import type { CustomPolylineGeometry } from "tlbs-map-react/dist/interfaces";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +29,20 @@ import { GeometryCreateDialog } from "./geometry-create-dialog";
 import { fetchInterchange, UUID_RE } from "./interchange-detail";
 
 type Position = [number, number];
+
+const MAP_API_KEY = process.env.NEXT_PUBLIC_MAP_KEY ?? "";
+
+const ROUTE_COLORS = ["#3777FF", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4"];
+
+const SELECTED_POLYLINE_STYLES = {
+  selected: {
+    color: "#0EA5E9",
+    width: 9,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    lineCap: "round" as const,
+  },
+};
 
 type Geometry = {
   type: string;
@@ -62,6 +79,111 @@ async function fetchGeometries(interchangeId: string): Promise<GeometryRow[]> {
   if (error) throw error;
 
   return (data ?? []) as GeometryRow[];
+}
+
+/**
+ * 匝道几何地图：画出该互通全部折线，选中某条时高亮并缩放到该线范围。
+ * 坐标按 TMap 的 lat/lng 传参，几何数据本身是 WGS84。
+ */
+function GeometryMap({ rows, selectedId }: { rows: GeometryRow[]; selectedId: string | null }) {
+  const mapInstanceRef = React.useRef<TMap.Map | null>(null);
+  // TMap 脚本异步加载，就绪后才能构造 LatLng，避免首次渲染报错
+  const [mapReady, setMapReady] = React.useState(false);
+
+  const lines = React.useMemo(
+    () =>
+      rows
+        .map((row, index) => ({
+          row,
+          color: ROUTE_COLORS[index % ROUTE_COLORS.length] ?? ROUTE_COLORS[0],
+          coordinates: (row.geometry?.coordinates ?? []).filter(
+            (point): point is Position => Array.isArray(point) && point.length >= 2,
+          ),
+        }))
+        .filter((line) => line.coordinates.length > 1),
+    [rows],
+  );
+
+  const selectedLine = lines.find((line) => line.row.id === selectedId);
+
+  // 未选中时框住全部折线，选中时只框住该条折线
+  React.useEffect(() => {
+    const map = mapInstanceRef.current;
+    const points = selectedLine ? selectedLine.coordinates : lines.flatMap((line) => line.coordinates);
+    if (!mapReady || !map || points.length === 0) return;
+
+    const bounds = new TMap.LatLngBounds();
+    for (const [lng, lat] of points) {
+      bounds.extend(new TMap.LatLng(lat, lng));
+    }
+    map.fitBounds(bounds, { padding: 80 });
+  }, [mapReady, lines, selectedLine]);
+
+  const styles = React.useMemo(() => {
+    const result: TMap.MultiPolylineStyleHash = {};
+    for (const line of lines) {
+      result[`route-${line.row.id}`] = {
+        color: line.color,
+        width: 6,
+        borderWidth: 1,
+        borderColor: "#FFFFFF",
+        lineCap: "round",
+      };
+    }
+    return result;
+  }, [lines]);
+
+  const geometries = React.useMemo<CustomPolylineGeometry[]>(
+    () =>
+      mapReady
+        ? lines.map((line) => ({
+            styleId: `route-${line.row.id}`,
+            paths: line.coordinates.map(([lng, lat]) => new TMap.LatLng(lat, lng)),
+          }))
+        : [],
+    [lines, mapReady],
+  );
+
+  const selectedGeometries = React.useMemo<CustomPolylineGeometry[]>(
+    () =>
+      mapReady && selectedLine
+        ? [
+            {
+              styleId: "selected",
+              paths: selectedLine.coordinates.map(([lng, lat]) => new TMap.LatLng(lat, lng)),
+            },
+          ]
+        : [],
+    [mapReady, selectedLine],
+  );
+
+  return (
+    <div className="border-border/70 bg-background overflow-hidden rounded-xl border">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-medium">匝道几何地图</span>
+          <span className="text-muted-foreground text-xs">共 {lines.length} 条折线 · 点击表格行定位</span>
+        </div>
+        <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+          <span className="size-2 rounded-full bg-sky-500" />
+          当前选中
+        </span>
+      </div>
+      <div className="h-[420px] xl:h-[560px] 2xl:h-[640px]">
+        <BaseMap
+          ref={mapInstanceRef}
+          apiKey={MAP_API_KEY}
+          options={{ center: { lat: 32.06161, lng: 118.763495 }, zoom: 12 }}
+          onMapInited={() => {
+            setMapReady(true);
+          }}
+        >
+          <MultiPolyline styles={styles} geometries={geometries} />
+          <MultiPolyline styles={SELECTED_POLYLINE_STYLES} geometries={selectedGeometries} />
+        </BaseMap>
+      </div>
+    </div>
+  );
 }
 
 function summarize(geometry: Geometry | null): GeometrySummary | null {
@@ -106,6 +228,7 @@ function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function InterchangeGeometry({ interchangeId }: { interchangeId: string }) {
   const [selected, setSelected] = React.useState<GeometryRow | null>(null);
+  const [detailOpen, setDetailOpen] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
 
   const validId = UUID_RE.test(interchangeId);
@@ -153,7 +276,7 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
   if (isLoading) {
     tableBody = (
       <TableRow className="hover:bg-transparent">
-        <TableCell colSpan={7} className="text-muted-foreground h-40 text-center">
+        <TableCell colSpan={4} className="text-muted-foreground h-40 text-center">
           <span className="inline-flex items-center gap-2 text-sm">
             <Spinner className="size-4" /> 加载中…
           </span>
@@ -163,7 +286,7 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
   } else if (error) {
     tableBody = (
       <TableRow className="hover:bg-transparent">
-        <TableCell colSpan={7} className="h-40 text-center">
+        <TableCell colSpan={4} className="h-40 text-center">
           <div className="flex flex-col items-center gap-1">
             <p className="text-destructive text-sm font-medium">加载失败</p>
             <p className="text-muted-foreground text-sm">{error instanceof Error ? error.message : "未知错误"}</p>
@@ -174,7 +297,7 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
   } else if (rows.length === 0) {
     tableBody = (
       <TableRow className="hover:bg-transparent">
-        <TableCell colSpan={7} className="h-40 text-center">
+        <TableCell colSpan={4} className="h-40 text-center">
           <div className="flex flex-col items-center gap-1">
             <p className="text-sm font-medium">该互通暂无几何数据</p>
             <p className="text-muted-foreground text-sm">
@@ -191,7 +314,10 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
       return (
         <TableRow
           key={row.id}
-          className="border-border/60 hover:bg-muted/20 cursor-pointer"
+          className={cn(
+            "border-border/60 hover:bg-muted/20 cursor-pointer",
+            selected?.id === row.id && "bg-muted/60 hover:bg-muted/60",
+          )}
           onClick={() => setSelected(row)}
         >
           <TableCell className="py-3 align-middle">
@@ -211,17 +337,6 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
           <TableCell className="py-3 align-middle">
             <span className="text-sm tabular-nums">{summary?.count ?? "—"}</span>
           </TableCell>
-          <TableCell className="text-muted-foreground py-3 align-middle font-mono text-xs tabular-nums">
-            {summary ? formatRange(summary.minLng, summary.maxLng) : "—"}
-          </TableCell>
-          <TableCell className="text-muted-foreground py-3 align-middle font-mono text-xs tabular-nums">
-            {summary ? formatRange(summary.minLat, summary.maxLat) : "—"}
-          </TableCell>
-          <TableCell className="py-3 align-middle">
-            <Badge variant="outline" className="text-muted-foreground rounded-sm font-mono text-[11px]">
-              {summary?.crs ?? "—"}
-            </Badge>
-          </TableCell>
           <TableCell className="py-3 text-right align-middle">
             <Button
               variant="ghost"
@@ -230,6 +345,7 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
               onClick={(event) => {
                 event.stopPropagation();
                 setSelected(row);
+                setDetailOpen(true);
               }}
             >
               <Maximize2 />
@@ -242,8 +358,19 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="border-border/70 bg-background overflow-hidden rounded-xl border">
+    <div
+      className={cn(
+        "grid gap-4",
+        rows.length > 0 && "xl:grid-cols-[minmax(0,0.9fr)_minmax(520px,1.1fr)] xl:items-start",
+      )}
+    >
+      {rows.length > 0 ? (
+        <div className="xl:sticky xl:top-4 xl:order-2">
+          <GeometryMap rows={rows} selectedId={selected?.id ?? null} />
+        </div>
+      ) : null}
+
+      <div className="border-border/70 bg-background overflow-hidden rounded-xl border xl:order-1">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
           <div className="flex items-baseline gap-2">
             <span className="text-sm font-medium">匝道几何</span>
@@ -283,9 +410,6 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
               <TableHead className="text-muted-foreground h-11 w-20 font-medium">预览</TableHead>
               <TableHead className="text-muted-foreground h-11 font-medium">线路编码</TableHead>
               <TableHead className="text-muted-foreground h-11 font-medium">节点数</TableHead>
-              <TableHead className="text-muted-foreground h-11 font-medium">经度范围</TableHead>
-              <TableHead className="text-muted-foreground h-11 font-medium">纬度范围</TableHead>
-              <TableHead className="text-muted-foreground h-11 font-medium">坐标系</TableHead>
               <TableHead className="h-11 w-12" />
             </TableRow>
           </TableHeader>
@@ -294,9 +418,9 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
       </div>
 
       <Dialog
-        open={Boolean(selected)}
+        open={detailOpen && Boolean(selected)}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open) setDetailOpen(false);
         }}
       >
         <DialogContent className="sm:max-w-2xl">
