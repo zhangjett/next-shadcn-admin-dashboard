@@ -110,6 +110,7 @@
     }
   },
   "javascript": {
+    "globals": ["TMap"],
     "formatter": {
       "jsxQuoteStyle": "double",
       "quoteProperties": "asNeeded",
