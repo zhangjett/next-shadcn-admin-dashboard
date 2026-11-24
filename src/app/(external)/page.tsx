@@ -32,9 +32,33 @@ export const metadata: Metadata = {
 export default function Home() {
   const websiteJsonLd = {
     "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: APP_CONFIG.name,
-    url: new URL("/", APP_CONFIG.url).href,
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": `${APP_CONFIG.url}/#website`,
+        name: APP_CONFIG.name,
+        description: APP_CONFIG.meta.description,
+        url: new URL("/", APP_CONFIG.url).href,
+        inLanguage: "en",
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": `${APP_CONFIG.url}/#source-code`,
+        name: APP_CONFIG.name,
+        description: APP_CONFIG.meta.description,
+        url: new URL("/", APP_CONFIG.url).href,
+        codeRepository: APP_CONFIG.repository,
+        license: `${APP_CONFIG.repository}/blob/main/LICENSE`,
+        programmingLanguage: "TypeScript",
+        runtimePlatform: "Next.js, React",
+        isPartOf: { "@id": `${APP_CONFIG.url}/#website` },
+        author: {
+          "@type": "Person",
+          name: "Arham Khan",
+          url: "https://github.com/arhamkhnz",
+        },
+      },
+    ],
   };
 
   // Keeps landing-page colors independent from saved dashboard theme presets.
@@ -55,7 +79,7 @@ export default function Home() {
             aria-label="Studio Admin home"
             prefetch={false}
           >
-            <AppLogo className="size-4 shrink-0" viewBox="72 96 356 308" />
+            <AppLogo className="size-4 shrink-0" />
             <span>Studio Admin</span>
           </Link>
           <LandingThemeSwitcher />

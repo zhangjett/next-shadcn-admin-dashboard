@@ -16,6 +16,8 @@ const PUBLIC_ROUTES = [
   "/dashboard/infrastructure",
   "/dashboard/file-manager",
   "/dashboard/patient-monitoring",
+  "/dashboard/crypto",
+  "/dashboard/hr",
   "/dashboard/calendar",
   "/dashboard/kanban",
   "/dashboard/tasks",
@@ -33,6 +35,6 @@ const PUBLIC_ROUTES = [
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return PUBLIC_ROUTES.map((route) => ({
-    url: `${APP_CONFIG.url}${route}`,
+    url: new URL(route, APP_CONFIG.url).href,
   }));
 }
