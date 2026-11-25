@@ -275,7 +275,11 @@ export const sidebarItems: NavGroup[] = [
         id: "expressway",
         title: "高速公路",
         icon: Route,
-        subItems: [{ id: "expressway-interchange", title: "互通", url: "/dashboard/expressway/interchange" }],
+        subItems: [
+          { id: "expressway-interchange", title: "互通", url: "/dashboard/expressway/interchange" },
+          { id: "expressway-section", title: "路段", url: "/dashboard/expressway/section" },
+          { id: "expressway-network", title: "路网地图", url: "/dashboard/expressway/network" },
+        ],
       },
     ],
   },

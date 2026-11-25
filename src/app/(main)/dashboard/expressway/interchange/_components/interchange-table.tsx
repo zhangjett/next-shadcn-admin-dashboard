@@ -240,7 +240,7 @@ function ExpresswayGroupLabel({
 export function InterchangeTable() {
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [grouping, setGrouping] = React.useState<GroupingState>(["expressway"]);
-  const [expanded, setExpanded] = React.useState<ExpandedState>(true);
+  const [expanded, setExpanded] = React.useState<ExpandedState>({});
 
   const {
     data = [],
@@ -367,7 +367,7 @@ export function InterchangeTable() {
 
   function changeGrouping(value: string) {
     table.setGrouping(value === "none" ? [] : [value]);
-    table.toggleAllRowsExpanded(true);
+    table.toggleAllRowsExpanded(false);
   }
 
   let tableBody: React.ReactNode;

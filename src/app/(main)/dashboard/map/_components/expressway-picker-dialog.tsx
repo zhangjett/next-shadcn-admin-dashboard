@@ -167,7 +167,7 @@ async function fetchExpressways(search: string): Promise<{ rows: Expressway[]; t
 
 type TollStationRoadRow = {
   stake_km: number | string | null;
-  station: { id: string; station_name: string; station_type: string | null; district: string | null } | null;
+  station: { id: string; name: string; station_type: string | null; district: string | null } | null;
 };
 
 type InterchangeRoadRow = {
@@ -185,7 +185,7 @@ async function fetchNodes(expresswayId: string): Promise<SectionNode[]> {
   const [stations, interchanges] = await Promise.all([
     supabase
       .from("expressway_toll_station_road")
-      .select("stake_km, station:expressway_toll_station(id, station_name, station_type, district)")
+      .select("stake_km, station:expressway_toll_station(id, name, station_type, district)")
       .eq("expressway_id", expresswayId)
       .limit(NODE_LIMIT),
     supabase
@@ -207,7 +207,7 @@ async function fetchNodes(expresswayId: string): Promise<SectionNode[]> {
     const item: SectionNode = {
       id: station.id,
       kind: "toll_station",
-      name: station.station_name,
+      name: station.name,
       subtype: station.station_type,
       district: station.district,
       stakeKm: toStake(row.stake_km),

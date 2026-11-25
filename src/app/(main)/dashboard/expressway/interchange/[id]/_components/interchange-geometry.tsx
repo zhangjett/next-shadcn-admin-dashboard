@@ -32,11 +32,11 @@ type Position = [number, number];
 
 const MAP_API_KEY = process.env.NEXT_PUBLIC_MAP_KEY ?? "";
 
-const ROUTE_COLORS = ["#3777FF", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4"];
+const ROUTE_COLOR = "#3777FF";
 
 const SELECTED_POLYLINE_STYLES = {
   selected: {
-    color: "#0EA5E9",
+    color: ROUTE_COLOR,
     width: 9,
     borderWidth: 2,
     borderColor: "#FFFFFF",
@@ -93,9 +93,8 @@ function GeometryMap({ rows, selectedId }: { rows: GeometryRow[]; selectedId: st
   const lines = React.useMemo(
     () =>
       rows
-        .map((row, index) => ({
+        .map((row) => ({
           row,
-          color: ROUTE_COLORS[index % ROUTE_COLORS.length] ?? ROUTE_COLORS[0],
           coordinates: (row.geometry?.coordinates ?? []).filter(
             (point): point is Position => Array.isArray(point) && point.length >= 2,
           ),
@@ -119,25 +118,24 @@ function GeometryMap({ rows, selectedId }: { rows: GeometryRow[]; selectedId: st
     map.fitBounds(bounds, { padding: 80 });
   }, [mapReady, lines, selectedLine]);
 
-  const styles = React.useMemo(() => {
-    const result: TMap.MultiPolylineStyleHash = {};
-    for (const line of lines) {
-      result[`route-${line.row.id}`] = {
-        color: line.color,
+  const styles = React.useMemo<TMap.MultiPolylineStyleHash>(
+    () => ({
+      route: {
+        color: ROUTE_COLOR,
         width: 6,
         borderWidth: 1,
         borderColor: "#FFFFFF",
         lineCap: "round",
-      };
-    }
-    return result;
-  }, [lines]);
+      },
+    }),
+    [],
+  );
 
   const geometries = React.useMemo<CustomPolylineGeometry[]>(
     () =>
       mapReady
         ? lines.map((line) => ({
-            styleId: `route-${line.row.id}`,
+            styleId: "route",
             paths: line.coordinates.map(([lng, lat]) => new TMap.LatLng(lat, lng)),
           }))
         : [],
@@ -320,12 +318,12 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
           )}
           onClick={() => setSelected(row)}
         >
-          <TableCell className="py-3 align-middle">
-            <div className="bg-muted/30 flex size-14 items-center justify-center rounded-md border">
-              <GeometryPreview coordinates={row.geometry?.coordinates ?? []} className="size-12" />
+          <TableCell className="py-1.5 align-middle">
+            <div className="bg-muted/30 flex size-10 items-center justify-center rounded-md border">
+              <GeometryPreview coordinates={row.geometry?.coordinates ?? []} className="size-8" />
             </div>
           </TableCell>
-          <TableCell className="py-3 align-middle">
+          <TableCell className="py-1.5 align-middle">
             {row.route_code ? (
               <Badge variant="outline" className="rounded-sm font-mono text-[11px]">
                 {row.route_code}
@@ -334,10 +332,10 @@ export function InterchangeGeometry({ interchangeId }: { interchangeId: string }
               <span className="text-muted-foreground text-sm">—</span>
             )}
           </TableCell>
-          <TableCell className="py-3 align-middle">
+          <TableCell className="py-1.5 align-middle">
             <span className="text-sm tabular-nums">{summary?.count ?? "—"}</span>
           </TableCell>
-          <TableCell className="py-3 text-right align-middle">
+          <TableCell className="py-1.5 text-right align-middle">
             <Button
               variant="ghost"
               size="icon-sm"
