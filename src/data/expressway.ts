@@ -345,7 +345,7 @@ function sectionNodeColumns(node: ExpresswayNodeOption | null) {
   };
 }
 
-/** 某条高速下的全部节点：收费站 + 互通，带桩号并按桩号升序 */
+/** 某条高速下的全部江苏节点：收费站 + 互通，带桩号并按桩号升序 */
 export async function fetchExpresswayNodes(expresswayId: string): Promise<ExpresswayNodeOption[]> {
   const supabase = createClient();
 
@@ -353,11 +353,13 @@ export async function fetchExpresswayNodes(expresswayId: string): Promise<Expres
     supabase
       .from("expressway_toll_station_road")
       .select("stake_km, station:expressway_toll_station(id, name, station_type)")
-      .eq("expressway_id", expresswayId),
+      .eq("expressway_id", expresswayId)
+      .like("station.district", `${JIANGSU_PREFIX}%`),
     supabase
       .from("expressway_interchange_road")
       .select("stake_km, node:expressway_interchange(id, node_name, inter_type)")
-      .eq("expressway_id", expresswayId),
+      .eq("expressway_id", expresswayId)
+      .like("node.district", `${JIANGSU_PREFIX}%`),
   ]);
 
   if (stations.error) throw stations.error;
